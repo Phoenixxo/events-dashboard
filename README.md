@@ -157,25 +157,39 @@ Production path:
 
 ## UI Plan
 
-The first screen should be the dashboard, not a landing page.
+The first screen should be the dashboard, not a landing page. The app should feel like an operational tool a product team could keep open while watching marketplace behavior.
 
-Primary sections:
+Application shell:
 
-- header with project framing and reset action
-- KPI row
-- event distribution chart
-- recent event table
-- event collection form
-- product insights panel
-- source breakdown chart
+- fixed header, full width, 64px tall
+- fixed left sidebar, 240px wide
+- fluid main content area with vertical scrolling
+- sidebar collapses below 768px
+- main content should never scroll the whole page behind the fixed navigation
 
 Visual style:
 
 - clean operational dashboard
-- responsive grid
+- structured shell layout instead of a marketing-style page
 - dense but readable information
+- cards are acceptable for KPI modules, but the overall page should not be a loose card stack
 - no decorative hero section
 - no external chart library for v1
+
+Main content sections:
+
+1. Page title and action buttons.
+2. KPI row with four equal-width cards.
+3. Chart grid with two columns: trend line chart and event/source bar chart.
+4. Full-width data table with pagination.
+5. Event collection form in a side panel, drawer, or compact section reachable from the action row.
+
+Responsive behavior:
+
+- below 768px, collapse the sidebar into a compact top control or hidden drawer
+- KPI cards stack vertically or in a two-column grid depending on available width
+- chart grid becomes one column
+- table remains horizontally scrollable if needed
 
 ## Implementation Plan
 
@@ -185,9 +199,11 @@ Visual style:
 4. Add `POST /api/events` for validation and event normalization.
 5. Wire the dashboard form through the API route.
 6. Persist collected events in `localStorage`.
-7. Add product insights and performance timing display.
-8. Update project metadata and final README notes.
-9. Run lint/build and do a manual UX pass.
+7. Build the fixed header/sidebar dashboard shell.
+8. Add KPI modules, chart grid, paginated table, and event collection flow.
+9. Add product insights and performance timing display.
+10. Update project metadata and final README notes.
+11. Run lint/build and do a manual UX pass.
 
 ## Testing Plan
 
@@ -207,7 +223,11 @@ Manual acceptance checks:
 - reset restores seeded data
 - performance events display milliseconds, not dollars
 - payment events display dollars
-- layout remains usable on desktop and mobile
+- fixed header and sidebar do not overlap main content
+- sidebar collapses below 768px
+- KPI cards stack or reflow cleanly on mobile
+- charts reflow from two columns to one column on mobile
+- table pagination works and remains readable
 
 Optional follow-up:
 
