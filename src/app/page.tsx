@@ -364,7 +364,7 @@ export default function Home() {
           </section>
 
           <section className="grid gap-6 lg:grid-cols-2">
-            <Panel title="Search and reservation trend">
+            <Panel title="Daily searches and reservations">
               <LineChart data={summary.trend} />
             </Panel>
             <Panel title="Event distribution">
@@ -546,7 +546,7 @@ function LineChart({
   data: Array<{ label: string; searches: number; reservations: number }>;
 }) {
   const maxValue = Math.max(
-    1,
+    5,
     ...data.flatMap((point) => [point.searches, point.reservations]),
   );
   const chartWidth = 640;

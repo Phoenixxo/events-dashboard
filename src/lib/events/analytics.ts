@@ -168,15 +168,71 @@ function getPercentile(values: number[], percentile: number) {
 }
 
 function getTrend(events: TrackedEvent[]) {
-  const sortedEvents = [...events].sort(
-    (first, second) =>
-      new Date(first.timestamp).getTime() - new Date(second.timestamp).getTime(),
+  const bucketCount = 8;
+  const relevantEvents = events
+    .filter(
+      (event) => event.type === "ride_search" || event.type === "seat_reserved",
+    )
+    .sort(
+      (first, second) =>
+        new Date(first.timestamp).getTime() - new Date(second.timestamp).getTime(),
+    );
+
+  if (relevantEvents.length === 0) {
+    return Array.from({ length: bucketCount }, (_, index) => ({
+      label: `${index + 1}`,
+      searches: 0,
+      reservations: 0,
+    }));
+  }
+
+  const latestEventDay = startOfDay(
+    new Date(relevantEvents[relevantEvents.length - 1].timestamp),
   );
-  const buckets = sortedEvents.slice(-8).map((event, index) => ({
-    label: `${index + 1}`,
-    searches: event.type === "ride_search" ? 1 : 0,
-    reservations: event.type === "seat_reserved" ? 1 : 0,
+  const firstBucketDay = addDays(latestEventDay, -(bucketCount - 1));
+  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+    label: formatTrendLabel(addDays(firstBucketDay, index)),
+    searches: 0,
+    reservations: 0,
   }));
 
-  return buckets.length > 0 ? buckets : [{ label: "1", searches: 0, reservations: 0 }];
+  for (const event of relevantEvents) {
+    const eventDay = startOfDay(new Date(event.timestamp));
+    const bucketIndex = getDayDifference(firstBucketDay, eventDay);
+
+    if (bucketIndex < 0 || bucketIndex >= bucketCount) {
+      continue;
+    }
+
+    if (event.type === "ride_search") {
+      buckets[bucketIndex].searches += 1;
+    }
+
+    if (event.type === "seat_reserved") {
+      buckets[bucketIndex].reservations += 1;
+    }
+  }
+
+  return buckets;
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+}
+
+function getDayDifference(startDate: Date, endDate: Date) {
+  const millisecondsPerDay = 24 * 60 * 60 * 1000;
+
+  return Math.round((endDate.getTime() - startDate.getTime()) / millisecondsPerDay);
+}
+
+function formatTrendLabel(date: Date) {
+  return `${date.getMonth() + 1}/${date.getDate()}`;
 }
