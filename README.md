@@ -1,36 +1,229 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Event Analytics Dashboard
 
-## Getting Started
+## Overview
 
-First, run the development server:
+This project will implement that prompt as a small product analytics system for a ride marketplace. The dashboard will be tailored around Kamel Ride-style workflows: route searches, ride postings, booking starts, seat reservations, rider-driver messages, payments, errors, and real-user performance samples.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Product Goals
+
+- Collect meaningful user and system events through a clear ingestion boundary.
+- Display analytics that help a product team understand marketplace health.
+- Keep the implementation small enough for a take-home assignment while still showing production-oriented judgment.
+- Make TypeScript do useful work through explicit domain types, validation, and pure analytics functions.
+- Document tradeoffs clearly so reviewers can see what is intentionally omitted.
+
+## Core Requirements
+
+- A user can submit an event from the dashboard.
+- Submitted events flow through an API route before appearing in analytics.
+- The dashboard starts with realistic seeded data so it is useful on first load.
+- Events persist locally across refreshes.
+- Analytics update immediately after a new event is collected.
+- The UI shows both business events and real-user performance signals.
+- The codebase separates UI concerns from event modeling, validation, and analytics logic.
+
+## Non-Goals
+
+- No production database for this version.
+- No authentication or real user accounts.
+- No external charting library.
+- No queue, batch processor, or event streaming infrastructure.
+- No attempt to clone a full real-user-monitoring product.
+
+These are reasonable omissions for the timebox. The architecture should leave a clean path to add them later.
+
+## Domain Model
+
+The primary domain object is a tracked event.
+
+```ts
+type EventType =
+  | "ride_search"
+  | "ride_posted"
+  | "booking_started"
+  | "seat_reserved"
+  | "message_sent"
+  | "payment_completed"
+  | "error"
+  | "performance";
+
+type EventSource = "web" | "mobile" | "email" | "api";
+
+type TrackedEvent = {
+  id: string;
+  type: EventType;
+  userId: string;
+  timestamp: string;
+  source: EventSource;
+  value?: number;
+  metadata?: string;
+};
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`value` depends on the event type:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `payment_completed`: fare or booking value in dollars.
+- `performance`: real-user timing sample in milliseconds.
+- Other events: optional, usually omitted.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`metadata` stores human-readable context for the demo, such as `Ithaca -> NYC, 2 seats available`.
 
-## Learn More
+## Analytics Model
 
-To learn more about Next.js, take a look at the following resources:
+Analytics will be derived from the current event list rather than stored separately.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The dashboard should compute:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- total events
+- active users
+- search-to-seat conversion
+- seats reserved
+- total booking value
+- average fare
+- p75 real-user performance
+- event counts by type
+- event counts by source
+- recent events
+- product insights
 
-## Deploy on Vercel
+Product insights should be simple, deterministic observations derived from the same analytics summary:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- searches outpacing posted rides suggests supply constraints
+- booking starts without reservations suggests booking friction
+- message volume near reservations suggests trust-building behavior
+- high error rate suggests reliability work before growth experiments
+- high p75 performance suggests slow search or checkout pages may hurt conversion
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Architecture
+
+The app will use Next.js App Router with a small client dashboard and one API route.
+
+Planned structure:
+
+```txt
+src/
+  app/
+    api/
+      events/
+        route.ts
+    layout.tsx
+    page.tsx
+  lib/
+    events/
+      analytics.ts
+      seed-events.ts
+      types.ts
+      validation.ts
+```
+
+Responsibilities:
+
+- `src/app/page.tsx`: interactive dashboard, form state, persistence, rendering.
+- `src/app/api/events/route.ts`: event ingestion endpoint.
+- `src/lib/events/types.ts`: domain and API response types.
+- `src/lib/events/validation.ts`: validate and normalize event input.
+- `src/lib/events/analytics.ts`: pure analytics and insight functions.
+- `src/lib/events/seed-events.ts`: realistic demo events.
+
+## Event Ingestion Flow
+
+1. The dashboard form collects event input.
+2. The client submits the payload to `POST /api/events`.
+3. The API validates the event type, source, user ID, and optional value.
+4. The API returns a normalized `TrackedEvent` with `id` and `timestamp`.
+5. The client appends the event to local state.
+6. The event list is saved to `localStorage`.
+7. Derived analytics recompute from the updated event list.
+
+The API route should also return a `Server-Timing` header so the UI can show that the event passed through an ingestion boundary and expose basic collection latency.
+
+## Persistence Strategy
+
+For this take-home version, persistence will use `localStorage`.
+
+Why:
+
+- it keeps the demo reliable without setup
+- it supports refresh persistence
+- it avoids spending time on database scaffolding
+- the API route still demonstrates a backend boundary
+
+Production path:
+
+- replace local state persistence with database-backed `GET /api/events`
+- keep `POST /api/events` as the ingestion endpoint
+- add pagination and date filtering
+- add server-side aggregation for large datasets
+
+## UI Plan
+
+The first screen should be the dashboard, not a landing page.
+
+Primary sections:
+
+- header with project framing and reset action
+- KPI row
+- event distribution chart
+- recent event table
+- event collection form
+- product insights panel
+- source breakdown chart
+
+Visual style:
+
+- clean operational dashboard
+- responsive grid
+- dense but readable information
+- no decorative hero section
+- no external chart library for v1
+
+## Implementation Plan
+
+1. Replace the starter page with a typed client dashboard.
+2. Add domain types and realistic Kamel Ride-style seed events.
+3. Extract analytics functions into a pure library module.
+4. Add `POST /api/events` for validation and event normalization.
+5. Wire the dashboard form through the API route.
+6. Persist collected events in `localStorage`.
+7. Add product insights and performance timing display.
+8. Update project metadata and final README notes.
+9. Run lint/build and do a manual UX pass.
+
+## Testing Plan
+
+Required verification:
+
+```bash
+pnpm lint
+pnpm build
+```
+
+Manual acceptance checks:
+
+- seeded events appear on first load
+- adding an event updates KPI cards, charts, table, and insights
+- invalid payloads are rejected by the API
+- refresh preserves locally collected events
+- reset restores seeded data
+- performance events display milliseconds, not dollars
+- payment events display dollars
+- layout remains usable on desktop and mobile
+
+Optional follow-up:
+
+- add unit tests for validation
+- add unit tests for analytics summaries
+- add API route tests for valid and invalid payloads
+
+## Production Considerations
+
+If this moved beyond a take-home:
+
+- Store raw events in a database or event pipeline.
+- Add authentication and derive user IDs from session data.
+- Batch client events and retry failed submissions.
+- Add schema validation with a dedicated library.
+- Aggregate analytics server-side for larger datasets.
+- Add time windows, route filters, and campus filters.
+- Track real browser metrics with `PerformanceObserver`.
+- Add observability around event ingestion failures.
