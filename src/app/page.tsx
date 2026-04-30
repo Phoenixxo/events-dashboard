@@ -551,7 +551,13 @@ function LineChart({
   );
   const chartWidth = 640;
   const chartHeight = 220;
-  const padding = 28;
+  const padding = {
+    top: 18,
+    right: 24,
+    bottom: 32,
+    left: 42,
+  };
+  const yTicks = getYAxisTicks(maxValue);
   const searchPoints = data.map((point, index) =>
     getPoint(
       index,
@@ -583,11 +589,41 @@ function LineChart({
         role="img"
         aria-label="Search and reservation trend"
       >
+        {yTicks.map((tick) => {
+          const y = getYPosition(tick, maxValue, chartHeight, padding);
+
+          return (
+            <g key={tick}>
+              <line
+                x1={padding.left}
+                x2={chartWidth - padding.right}
+                y1={y}
+                y2={y}
+                stroke="#e2e8f0"
+              />
+              <text
+                x={padding.left - 10}
+                y={y + 4}
+                textAnchor="end"
+                className="fill-slate-500 text-[11px]"
+              >
+                {tick}
+              </text>
+            </g>
+          );
+        })}
         <line
-          x1={padding}
-          x2={chartWidth - padding}
-          y1={chartHeight - padding}
-          y2={chartHeight - padding}
+          x1={padding.left}
+          x2={chartWidth - padding.right}
+          y1={chartHeight - padding.bottom}
+          y2={chartHeight - padding.bottom}
+          stroke="#cbd5e1"
+        />
+        <line
+          x1={padding.left}
+          x2={padding.left}
+          y1={padding.top}
+          y2={chartHeight - padding.bottom}
           stroke="#cbd5e1"
         />
         <polyline
@@ -608,13 +644,14 @@ function LineChart({
         />
         {data.map((point, index) => {
           const x =
-            padding +
-            (index / Math.max(1, data.length - 1)) * (chartWidth - padding * 2);
+            padding.left +
+            (index / Math.max(1, data.length - 1)) *
+              (chartWidth - padding.left - padding.right);
           return (
             <text
               key={point.label}
               x={x}
-              y={chartHeight - 6}
+              y={chartHeight - 8}
               textAnchor="middle"
               className="fill-slate-500 text-[11px]"
             >
@@ -644,12 +681,40 @@ function getPoint(
   maxValue: number,
   width: number,
   height: number,
-  padding: number,
+  padding: ChartPadding,
 ) {
-  const x = padding + (index / Math.max(1, length - 1)) * (width - padding * 2);
-  const y = height - padding - (value / maxValue) * (height - padding * 2);
+  const x =
+    padding.left +
+    (index / Math.max(1, length - 1)) * (width - padding.left - padding.right);
+  const y = getYPosition(value, maxValue, height, padding);
 
   return `${x},${y}`;
+}
+
+type ChartPadding = {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+};
+
+function getYPosition(
+  value: number,
+  maxValue: number,
+  height: number,
+  padding: ChartPadding,
+) {
+  return (
+    height -
+    padding.bottom -
+    (value / maxValue) * (height - padding.top - padding.bottom)
+  );
+}
+
+function getYAxisTicks(maxValue: number) {
+  const middleTick = Math.ceil(maxValue / 2);
+
+  return Array.from(new Set([0, middleTick, maxValue]));
 }
 
 function EventTable({ events }: { events: TrackedEvent[] }) {
