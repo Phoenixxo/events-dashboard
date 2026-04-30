@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState, useSyncExternalStore } from "react";
 import {
   EVENT_SOURCES,
   EVENT_TYPES,
@@ -18,7 +18,10 @@ import type {
 } from "@/lib/events/types";
 
 const STORAGE_KEY = "kamel-ride-analytics-events";
+const STORAGE_CHANGE_EVENT = "kamel-ride-events-changed";
 const PAGE_SIZE = 8;
+let cachedStoredValue: string | null = null;
+let cachedStoredEvents = SEED_EVENTS;
 
 const EVENT_LABELS: Record<EventType, string> = {
   ride_search: "Ride search",
@@ -105,8 +108,45 @@ function parseStoredEvents(value: string | null) {
   }
 }
 
+function getSeedEventsSnapshot() {
+  return SEED_EVENTS;
+}
+
+function getStoredEventsSnapshot() {
+  const storedValue = localStorage.getItem(STORAGE_KEY);
+
+  if (storedValue === cachedStoredValue) {
+    return cachedStoredEvents;
+  }
+
+  cachedStoredValue = storedValue;
+  cachedStoredEvents = parseStoredEvents(storedValue);
+
+  return cachedStoredEvents;
+}
+
+function subscribeToStoredEvents(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(STORAGE_CHANGE_EVENT, onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(STORAGE_CHANGE_EVENT, onStoreChange);
+  };
+}
+
+function writeStoredEvents(events: TrackedEvent[]) {
+  const storedValue = JSON.stringify(events);
+  cachedStoredValue = storedValue;
+  cachedStoredEvents = events;
+  localStorage.setItem(STORAGE_KEY, storedValue);
+  window.dispatchEvent(new Event(STORAGE_CHANGE_EVENT));
+}
+
 function isSupportedStoredEvent(event: TrackedEvent) {
-  return EVENT_TYPES.includes(event.type) && EVENT_SOURCES.includes(event.source);
+  return (
+    EVENT_TYPES.includes(event.type) && EVENT_SOURCES.includes(event.source)
+  );
 }
 
 function getCollectionApiTiming(serverTimingHeader: string | null) {
@@ -124,27 +164,17 @@ function getCollectionApiTiming(serverTimingHeader: string | null) {
 }
 
 export default function Home() {
-  const [events, setEvents] = useState<TrackedEvent[]>(() => {
-    if (typeof window === "undefined") {
-      return SEED_EVENTS;
-    }
-
-    return parseStoredEvents(localStorage.getItem(STORAGE_KEY));
-  });
+  const events = useSyncExternalStore(
+    subscribeToStoredEvents,
+    getStoredEventsSnapshot,
+    getSeedEventsSnapshot,
+  );
   const [formState, setFormState] = useState<EventFormState>(initialFormState);
   const [formError, setFormError] = useState("");
-  const [collectionStatus, setCollectionStatus] = useState(
-    "New events are collected through POST /api/events.",
-  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
-    }
-  }, [events]);
+  const [collectionStatus, setCollectionStatus] = useState("");
 
   const summary = useMemo(() => getAnalyticsSummary(events), [events]);
   const insights = useMemo(
@@ -155,7 +185,8 @@ export default function Home() {
     () =>
       [...events].sort(
         (first, second) =>
-          new Date(second.timestamp).getTime() - new Date(first.timestamp).getTime(),
+          new Date(second.timestamp).getTime() -
+          new Date(first.timestamp).getTime(),
       ),
     [events],
   );
@@ -165,21 +196,28 @@ export default function Home() {
     currentPage * PAGE_SIZE,
   );
   const largestEventCount = Math.max(1, ...Object.values(summary.eventCounts));
-  const largestSourceCount = Math.max(1, ...Object.values(summary.sourceCounts));
+  const largestSourceCount = Math.max(
+    1,
+    ...Object.values(summary.sourceCounts),
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedUserId = formState.userId.trim();
     const trimmedMetadata = formState.metadata.trim();
-    const parsedValue = formState.value === "" ? undefined : Number(formState.value);
+    const parsedValue =
+      formState.value === "" ? undefined : Number(formState.value);
 
     if (!trimmedUserId) {
       setFormError("User ID is required.");
       return;
     }
 
-    if (parsedValue !== undefined && (Number.isNaN(parsedValue) || parsedValue < 0)) {
+    if (
+      parsedValue !== undefined &&
+      (Number.isNaN(parsedValue) || parsedValue < 0)
+    ) {
       setFormError("Value must be a positive number.");
       return;
     }
@@ -211,10 +249,12 @@ export default function Home() {
         return;
       }
 
-      setEvents((currentEvents) => [data.event, ...currentEvents]);
+      writeStoredEvents([data.event, ...events]);
       setFormState({ ...initialFormState, userId: trimmedUserId });
       setCurrentPage(1);
-      setCollectionStatus(getCollectionApiTiming(response.headers.get("Server-Timing")));
+      setCollectionStatus(
+        getCollectionApiTiming(response.headers.get("Server-Timing")),
+      );
     } catch {
       setFormError("Unable to reach the collection API. Please try again.");
     } finally {
@@ -223,10 +263,9 @@ export default function Home() {
   }
 
   function resetDemoData() {
-    setEvents(SEED_EVENTS);
+    writeStoredEvents(SEED_EVENTS);
     setCurrentPage(1);
     setFormError("");
-    setCollectionStatus("Demo data restored. New events still use POST /api/events.");
   }
 
   return (
@@ -276,10 +315,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <main
-        id="dashboard"
-        className="h-screen overflow-y-auto pt-16 md:pl-60"
-      >
+      <main id="dashboard" className="h-screen overflow-y-auto pt-16 md:pl-60">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
           <section className="flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -289,10 +325,6 @@ export default function Home() {
               <h1 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">
                 Ride marketplace overview
               </h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Monitor route demand, ride supply, booking trust signals, seat
-                reservations, payments, and real-user performance.
-              </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <button
@@ -313,7 +345,10 @@ export default function Home() {
           </section>
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Active users" value={summary.activeUsers.toString()} />
+            <MetricCard
+              label="Active users"
+              value={summary.activeUsers.toString()}
+            />
             <MetricCard
               label="Search to seat"
               value={formatPercent(summary.searchToSeatRate)}
@@ -351,14 +386,16 @@ export default function Home() {
               <EventTable events={visibleEvents} />
               <div className="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-slate-500">
-                  Page {currentPage} of {pageCount}. Showing {visibleEvents.length} of{" "}
-                  {sortedEvents.length} events.
+                  Page {currentPage} of {pageCount}. Showing{" "}
+                  {visibleEvents.length} of {sortedEvents.length} events.
                 </p>
                 <div className="flex gap-2">
                   <button
                     type="button"
                     disabled={currentPage === 1}
-                    onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                    onClick={() =>
+                      setCurrentPage((page) => Math.max(1, page - 1))
+                    }
                     className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Previous
@@ -516,7 +553,15 @@ function LineChart({
   const chartHeight = 220;
   const padding = 28;
   const searchPoints = data.map((point, index) =>
-    getPoint(index, point.searches, data.length, maxValue, chartWidth, chartHeight, padding),
+    getPoint(
+      index,
+      point.searches,
+      data.length,
+      maxValue,
+      chartWidth,
+      chartHeight,
+      padding,
+    ),
   );
   const reservationPoints = data.map((point, index) =>
     getPoint(
@@ -637,7 +682,9 @@ function EventTable({ events }: { events: TrackedEvent[] }) {
               <td className="py-3 pr-4 text-slate-600">
                 {SOURCE_LABELS[event.source]}
               </td>
-              <td className="py-3 pr-4 text-slate-600">{formatEventValue(event)}</td>
+              <td className="py-3 pr-4 text-slate-600">
+                {formatEventValue(event)}
+              </td>
               <td className="py-3 text-slate-600">
                 {formatDateTime(event.timestamp)}
               </td>
@@ -740,7 +787,10 @@ function EventForm({
         <input
           value={formState.metadata}
           onChange={(event) =>
-            onChange((current) => ({ ...current, metadata: event.target.value }))
+            onChange((current) => ({
+              ...current,
+              metadata: event.target.value,
+            }))
           }
           placeholder="Ithaca -> NYC, 2 seats, checkout load..."
           className="h-11 rounded-md border border-slate-300 px-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100"
